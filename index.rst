@@ -1,4 +1,4 @@
-..  Copyright (c) 2019--2020 EditorConfig Team
+..  Copyright (c) 2019--2024 EditorConfig Team
     All rights reserved.
 
     Redistribution and use in source and binary forms, with or without
@@ -47,14 +47,19 @@ with version control systems.
 Terminology
 ===========
 
+.. versionchanged:: 0.15.1
+
 In EditorConfig:
 
-- "EditorConfig files" (usually named ``.editorconfig``) store settings,
-  and must conform to this specification.
-- "Cores" parse files conforming to this specification.
-- "Plugins" apply settings to files being edited, and use cores to
-  determine the settings.
-- "Editors" permit editing files, and use plugins to apply settings.
+- "EditorConfig files" (usually named ``.editorconfig``) include section(s)
+  storing key-value pairs.  EditorConfig files must conform to
+  this specification.
+- "Cores" parse files conforming to this specification, and provide
+  key-value pairs to plugins.
+- "Plugins" receive key-value pairs from cores and update an editor's
+  settings based on the key-value pairs.
+- "Editors" permit editing files, and use plugins to update settings for
+  files being edited.
 
 A conforming core or plugin must pass the tests in the
 `core-tests repository`_ or `plugin-tests repository`_, respectively.
@@ -68,26 +73,42 @@ EditorConfig organization.
 File Format
 ===========
 
-EditorConfig files are in an INI-like file format.
-In an EditorConfig file, all beginning whitespace on each line is considered
-irrelevant. Each line must be one of the following:
+.. versionchanged:: 0.17.2
 
-- Blank: contains only whitespace characters.
-- Comment: starts with a ``;`` or a ``#``.
+EditorConfig files are in an INI-like file format.
+To read an EditorConfig file, take one line at a time, from beginning to end.
+For each line:
+
+#. Remove all leading and trailing whitespace.
+#. Process the remaining text as specified for its type below.
+
+The types of lines are:
+
+- Blank: Contains nothing.  Blank lines are ignored.
+
+- Comment: starts with a ``;`` or a ``#``.  Comment lines are ignored.
+
 - Section Header: starts with a ``[`` and ends with a ``]``.
-   - May not use any non-whitespace characters outside of the surrounding
-     brackets.
+  These lines define globs; see :ref:`glob-expressions`.
+
    - May contain any characters between the square brackets (e.g.,
      ``[`` and ``]`` and even spaces and tabs are allowed).
    - Forward slashes (``/``) are used as path separators.
    - Backslashes (``\\``) are not allowed as path separators (even on Windows).
-- Key-Value Pair (or Pair): contains a key and a value, separated by an `=`.
-   - Key: the part before the first `=` (trimmed of whitespace).
-   - Value: The part after the first `=` (trimmed of whitespace).
+
+- Key-Value Pair (or Pair): contains a key and a value, separated by an ``=``.
+  See :ref:`supported-pairs`.
+
+   - Key: The part before the first ``=`` on the line.
+   - Value: The part, if any, after the first ``=`` on the line.
+   - Keys and values are trimmed of leading and trailing whitespace, but
+     include any whitespace that is between non-whitespace characters.
+   - If a value is not provided, then the value is an empty string
+     (i.e., ``""`` in C or Python).
 
 Any line that is not one of the above is invalid.
 
-EditorConfig files should be UTF-8 encoded, with LF or CRLF line separators.
+EditorConfig files must be UTF-8 encoded, with LF or CRLF line separators.
 
 No inline comments
 ------------------
@@ -108,21 +129,23 @@ This specification does not define any "escaping" mechanism for
 
 .. admonition :: Compatibility
 
-  The EditorConfig file format formerly allowed the use of `;` and `#` after the
+  The EditorConfig file format formerly allowed the use of ``;`` and ``#`` after the
   beginning of the line to mark the rest of a line as comment. This led to
   confusion how to parse values containing those characters. Old EditorConfig
   parsers may still allow inline comments.
 
-Terms
------
+Parts of an EditorConfig file
+-----------------------------
 
-EditorConfig defines the following terms for parts of an EditorConfig file:
+The parts of an EditorConfig file are:
 
 - Preamble: the lines that precedes the first section. The preamble is optional
   and may contain key-value pairs, comments and blank lines.
 - Section Name: the string between the beginning ``[`` and the ending ``]``.
 - Section: the lines starting from a Section Header until the beginning of
   the next Section Header or the end of the file.
+
+.. _glob-expressions:
 
 Glob Expressions
 ================
@@ -144,14 +167,29 @@ special characters for wildcard matching:
    * - ``?``
      - any single character, except path separators (``/``)
    * - ``[seq]``
-     - any single character in seq
+     - any single character in seq. Any character inside those brackets is
+       considered literally. It means, that pattern ``[ab*c{1..2}]`` is considered literally:
+       either 'a', or 'b', or '*', or 'c', or '{', or '1', or '.', or '2', or '}'.
    * - ``[!seq]``
-     - any single character not in seq
+     - any single character not in seq. Any character inside those brackets is
+       considered literally as well (see example above).
    * - ``{s1,s2,s3}``
-     - any of the strings given (separated by commas, can be nested)
+     - any of the strings given (separated by commas, can be nested) (But ``{s1}`` only matches ``{s1}`` literally.)
    * - ``{num1..num2}``
      - any integer numbers between ``num1`` and ``num2``, where ``num1`` and ``num2``
-       can be either positive or negative
+       can be either positive or negative. ``num1`` is required to be
+       less than ``num2``. For instance, ``{1..3}``, ``{-1..4}`` are valid, but ``{-4..-5}``,
+       ``{3..1}`` are not.
+
+If the glob contains a path separator (a ``/`` not inside square brackets), then the glob is relative
+to the directory level of the particular `.editorconfig` file itself.
+Otherwise the pattern may also match at any level below the `.editorconfig`
+level. For example, ``*.c`` matches any file that ends with ``.c`` in the
+directory of ``.editorconfig`` or any other directory below one that stores this ``.editorconfig``. 
+However, the glob ``subdir/*.c`` only matches files that end
+with ``.c`` in the ``subdir`` directory in the directory of ``.editorconfig``.
+
+As a corollary, a section name ending with ``/`` does not match any file.
 
 The backslash character (``\\``) can be used to escape a character so it is
 not interpreted as a special character.
@@ -176,13 +214,21 @@ precedence. If multiple EditorConfig files have matching sections, the rules
 from the closer EditorConfig file are read last, so pairs in closer
 files take precedence.
 
+.. _supported-pairs:
+
 Supported Pairs
 ===============
 
+.. versionchanged:: 0.17.1
+
 EditorConfig file sections contain key-value pairs separated by an
 equal sign (``=``). With the exception of the ``root`` key, all pairs MUST be
-located under a section to take effect. EditorConfig plugins shall ignore
-unrecognized keys and invalid/unsupported values for those keys.
+located under a section to take effect.
+
+- EditorConfig cores shall accept and report all syntactically valid
+  key-value pairs, even if the key is not defined in this specification.
+- EditorConfig plugins shall ignore unrecognized keys and invalid/unsupported
+  values.
 
 Here is the list of all keys defined by this version of this specification,
 and the supported values associated with them:
@@ -193,8 +239,10 @@ and the supported values associated with them:
    * - Key
      - Supported values
    * - ``indent_style``
-     - Set to ``tab`` or ``space`` to use hard tabs or soft tabs respectively. The
-       values are case insensitive.
+     - Set to ``tab`` or ``space`` to use tabs or spaces for indentation, respectively. Option ``tab`` 
+       implies that an indentation is to be filled by as many hard tabs as possible, with the rest of the
+       indentation filled by spaces. A non-normative explanation can be found in the indentation_ section. 
+       The values are case insensitive.
    * - ``indent_size``
      - Set to a whole number defining the number of columns used for each
        indentation level and the width of soft tabs (when supported). If this
@@ -211,16 +259,29 @@ and the supported values associated with them:
    * - ``charset``
      - Set to ``latin1``, ``utf-8``, ``utf-8-bom``, ``utf-16be`` or ``utf-16le`` to
        control the character set. Use of ``utf-8-bom`` is discouraged.
+   * - ``spelling_language``
+     - Sets the natural language that should be used for spell checking.
+       Only one language can be specified.  There is no default value.
+
+       The format is ``ss`` or ``ss-TT``, where ``ss`` is an `ISO 639`_
+       two-letter language code and ``TT`` is an `ISO 3166`_ two-letter
+       territory identifier.  (Therefore ``spelling_language`` must be
+       either two or five characters long.)
+
+       **Note:** This property does **not** specify the charset to be used.
+       The charset is in separate property ``charset``.
    * - ``trim_trailing_whitespace``
      - Set to ``true`` to remove all whitespace characters preceding newline
        characters in the file and ``false`` to ensure it doesn't.
    * - ``insert_final_newline``
      - Set to ``true`` ensure file ends with a newline when saving and ``false``
-       to ensure it doesn't.
+       to ensure it doesn't.  Editors must not insert newlines in empty files
+       when saving those files, even if ``insert_final_newline = true``.
+
    * - ``root``
-     - Must be specified in the preamble. Set to ``true`` to stop the
-       ``.editorconfig`` file search on the current file. The value is case
-       insensitive.
+     - Must be specified in the preamble.  Set to ``true`` to tell the core
+       not to check any higher directory for EditorConfig settings for on the
+       current filename.  The value is case-insensitive.
 
 For any pair, a value of ``unset`` removes the effect of that
 pair, even if it has been set before. For example, add ``indent_size =
@@ -230,6 +291,74 @@ Pair keys are case insensitive. All keys are lowercased after parsing.
 
 Cores must accept keys and values with lengths up to and including 1024 and 4096 characters respectively.
 Beyond that, each implementation may choose to define its own upper limits or no explicit upper limits at all.
+
+.. indentation:
+
+Indentation (Non-Normative)
+===========================
+The indentation related options (``indent_style``, ``indent_size`` and ``tab_width``) require a special documentation
+section to specify their behavior. Consider the following code snippet:
+
+.. code-block:: python
+
+    def execute():
+        source = "indentation is important"
+        for i in source.split(" "):
+            print(i)
+
+The ``indent_size`` setting for this code snippet equals 4, because ``indent_size`` means how many columns are required
+to indent the next line in relation to previous (if indentation, of course, is applicable for this line). Then the next question
+is *how* this indentation of 4 columns is achieved. It may be 4 consequent spaces/soft tabs,
+a single tab with width equal to 4, or two tabs with width equal to 2.
+
+This is when ``indent_style`` comes into picture. It specifies what character should be used **whenever possible** in order to
+achieve the indentation size specified in ``indent_size``. To fully understand what "whenever possible" actually means, lets
+assume that the editorconfig rules are specified for the file above:
+
+.. code-block:: ini
+
+    root = true
+    [example_file.py]
+    indent_style = tab
+    indent_size = 4
+    tab_width = 3
+
+The ``indent_size`` of 4 is not achievable by placing 1 or 2 consequent tabs, because ``tab_width = 3``. Therefore,
+in order to comply with this EditorConfig configuration, the new lines (where indentation is applicable) **must be precisely
+indented with one tab, and one space**. That is because by placing one tab we're not achieving the ``indent_size`` required, but by
+placing the 2 consequent tabs we're overreaching. Therefore, although ``indent_style`` is ``tab``, we still have to supplement
+with one space character to fulfill the requirement.
+
+For another example, if we have the following EditorConfig rules defined:
+
+.. code-block:: ini
+
+    root = true
+    [another_file.py]
+    indent_style = tab
+    indent_size = 8
+    tab_width = 4
+
+One **MUST** expect that spaces will not be used at all for indentation, since all the indentation can be achieved via tabs only.
+
+Additionally, it is possible to have ``indent_size`` less then the ``tab_width``.
+
+    [another_file.py]
+    indent_style = tab
+    indent_size = 4
+    tab_width = 8
+
+To understand the way it works, let's look at the following example:
+
+.. code-block:: python
+
+    def func():
+        if True:
+            return True
+
+In this case, the line where the ``if`` statement condition is specified is indented with 4 spaces, because the ``indent_size = 4``
+and the tab cannot fit in. On the other hand, the line with ``return`` statement must be indented with one tab, because the
+indentation level for this line is 8 columns, and a tab can fit in.
 
 Suggestions for Plugin Developers
 =================================
@@ -264,6 +393,8 @@ numbers.  Those version numbers are independent of the version number of
 this specification.
 
 .. _core-tests repository: https://github.com/editorconfig/editorconfig-core-test
+.. _ISO 639: https://en.wikipedia.org/wiki/ISO_639
+.. _ISO 3166: https://en.wikipedia.org/wiki/ISO_3166
 .. _Python configparser Library: https://docs.python.org/3/library/configparser.html
 .. _Plugin Guidelines: https://github.com/editorconfig/editorconfig/wiki/Plugin-Guidelines
 .. _plugin-tests repository: https://github.com/editorconfig/editorconfig-plugin-tests
